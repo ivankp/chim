@@ -53,15 +53,15 @@ impl Record {
     }
 }
 
-struct File<'a> {
-    path: &'a str,
+struct File {
+    path: String,
     data: Vec<u8>,
     records: Vec<Record>,
 }
 
-impl<'a> File<'a> {
-    fn new(path: &'a str) -> Self {
-        let data = std::fs::read(path).unwrap();
+impl File {
+    fn new(path: String) -> Self {
+        let data = std::fs::read(&path).unwrap();
         let size = data.len() as u32; // TODO: check that it fits
 
         let records = match &data[0..4] {
@@ -90,11 +90,19 @@ impl<'a> File<'a> {
     }
 }
 
+fn usage() -> ! {
+    println!("usage: chim input [output]");
+    std::process::exit(1);
+}
+
 fn main() {
-    let files: Vec<String> = std::env::args().skip(1).collect();
+    let mut args = std::env::args().skip(1);
 
-    println!("{:?}", files);
+    let input = match args.next() {
+        Some(path) => path,
+        None => usage(),
+    };
 
-    let file = File::new(&files[0]);
-    println!("{:?}", file.records.len());
+    let file = File::new(input);
+    println!("{:?} {:?}", file.records.len(), file.path);
 }
