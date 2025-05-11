@@ -1,3 +1,5 @@
+use anyhow::{Context, Result};
+
 fn as_u32(data: &[u8]) -> u32 {
     let mut x: u32 = 0;
     x += data[3] as u32; x <<= 8;
@@ -60,9 +62,12 @@ struct File {
 }
 
 impl File {
-    fn new(path: String) -> Self {
-        let data = std::fs::read(&path).unwrap();
-        let size = data.len() as u32; // TODO: check that it fits
+    fn new(path: String) -> Result<Self> {
+        let data = std::fs::read(&path)?;
+        let size = data.len();
+        let size = u32::try_from(size).context(
+            format!("File size ({}) is too large for a 32 bit unsigned value", size)
+        )?;
 
         let records = match &data[0..4] {
             b"TES3" => {
@@ -72,6 +77,10 @@ impl File {
                     let record = Record::new(&data[i as usize ..], i);
                     if i == 0 {
                         records.reserve_exact(31); // TODO
+                        // pub fn try_reserve_exact(
+                        //     &mut self,
+                        //     additional: usize,
+                        // ) -> Result<(), TryReserveError>
                     }
                     i += record.size;
                     // if i > size
@@ -82,27 +91,24 @@ impl File {
             _ => todo!()
         };
 
-        Self {
+        Ok(Self {
             path: path,
             data: data,
             records: records,
-        }
+        })
     }
 }
 
-fn usage() -> ! {
-    println!("usage: chim input [output]");
-    std::process::exit(1);
-}
+const USAGE: &str = "usage: chim input [output]";
 
-fn main() {
+fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
 
-    let input = match args.next() {
-        Some(path) => path,
-        None => usage(),
-    };
+    let input = args.next().context(format!("Input file not specified.\n{USAGE}"))?;
+    let input_clone = input.clone(); // TODO: how to move only if Ok?
 
-    let file = File::new(input);
+    let file = File::new(input).context(format!("Input file {}", input_clone))?;
     println!("{:?} {:?}", file.records.len(), file.path);
+
+    Ok(())
 }
