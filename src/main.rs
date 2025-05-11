@@ -15,18 +15,27 @@ fn as_u32(data: &[u8]) -> u32 {
 //     T::from_be_bytes(buf)
 // }
 
+// fn ascii_or_hex(data: &[u8]) -> String {
+// }
+
 struct SubRecord {
     start: u32,
     size: u32,
 }
 
 impl SubRecord {
-    fn new(data: &[u8], start: u32) -> Self {
-        let size = as_u32(&data[4..]) + 8;
-        Self {
+    const HEAD_SIZE: u32 = 8;
+
+    fn new(data: &[u8], start: u32) -> Result<Self> {
+        let data_len = data.len() as u32;
+        if data_len < Self::HEAD_SIZE {
+            return None{}.context("Subrecord data contains less than 8 bytes");
+        }
+        let size = as_u32(&data[4..]) + Self::HEAD_SIZE;
+        Ok(Self {
             start: start,
             size: size,
-        }
+        })
     }
 }
 
@@ -37,21 +46,31 @@ struct Record {
 }
 
 impl Record {
-    fn new(data: &[u8], start: u32) -> Self {
-        let size = as_u32(&data[4..]) + 16;
+    const HEAD_SIZE: u32 = 16;
+
+    fn new(data: &[u8], start: u32) -> Result<Self> {
+        let data_len = data.len() as u32;
+        if data_len < Self::HEAD_SIZE {
+            return None{}.context("Record data contains less than 16 bytes");
+        }
+        let size = as_u32(&data[4..]) + Self::HEAD_SIZE;
+        if data_len < size {
+            return None{}.context(
+                format!("Record size ({}) larger than remaining file size ({})", size, data.len())
+            );
+        }
         let mut subrecords = Vec::new();
-        let mut i: u32 = 16;
+        let mut i: u32 = Self::HEAD_SIZE;
         while i < size {
-            let subrecord = SubRecord::new(&data[i as usize ..], i);
+            let subrecord = SubRecord::new(&data[i as usize ..], i)?;
             i += subrecord.size;
-            // if i > size
             subrecords.push(subrecord); // TODO: can I create the object in-place?
         }
-        Self {
+        Ok(Self {
             start: start,
             size: size,
             subrecords: subrecords,
-        }
+        })
     }
 }
 
@@ -66,7 +85,7 @@ impl File {
         let data = std::fs::read(&path)?;
         let size = data.len();
         let size = u32::try_from(size).context(
-            format!("File size ({}) is too large for a 32 bit unsigned value", size)
+            format!("File size ({}) does not fit into a 32 bit unsigned value", size)
         )?;
 
         let records = match &data[0..4] {
@@ -74,7 +93,7 @@ impl File {
                 let mut records = Vec::new();
                 let mut i: u32 = 0;
                 while i < size {
-                    let record = Record::new(&data[i as usize ..], i);
+                    let record = Record::new(&data[i as usize ..], i)?;
                     if i == 0 {
                         records.reserve_exact(31); // TODO
                         // pub fn try_reserve_exact(
@@ -83,13 +102,12 @@ impl File {
                         // ) -> Result<(), TryReserveError>
                     }
                     i += record.size;
-                    // if i > size
                     records.push(record); // TODO: can I create the object in-place?
                 }
-                records
+                Ok(records)
             }
-            _ => todo!()
-        };
+            head => None{}.context(format!("Unexpected initial 4 bytes: {:?}", head)),
+        }?;
 
         Ok(Self {
             path: path,
