@@ -27,11 +27,11 @@ impl SubRecord {
     const HEAD_SIZE: u32 = 8;
 
     fn new(data: &[u8], start: u32) -> Result<Self> {
-        let data_len = data.len() as u32;
+        let data_len = data.len() as u32; // safe, already checked that file size fits in u32
         if data_len < Self::HEAD_SIZE {
             return None{}.context("Subrecord data contains less than 8 bytes");
         }
-        let size = as_u32(&data[4..]) + Self::HEAD_SIZE;
+        let size = as_u32(&data[4..]).saturating_add(Self::HEAD_SIZE);
         Ok(Self {
             start: start,
             size: size,
@@ -49,14 +49,14 @@ impl Record {
     const HEAD_SIZE: u32 = 16;
 
     fn new(data: &[u8], start: u32) -> Result<Self> {
-        let data_len = data.len() as u32;
+        let data_len = data.len() as u32; // safe, already checked that file size fits in u32
         if data_len < Self::HEAD_SIZE {
             return None{}.context("Record data contains less than 16 bytes");
         }
-        let size = as_u32(&data[4..]) + Self::HEAD_SIZE;
+        let size = as_u32(&data[4..]).saturating_add(Self::HEAD_SIZE);
         if data_len < size {
             return None{}.context(
-                format!("Record size ({}) larger than remaining file size ({})", size, data.len())
+                format!("Record size ({}) larger than remaining file size ({})", size, data_len)
             );
         }
         let mut subrecords = Vec::new();
@@ -93,7 +93,9 @@ impl File {
                 let mut records = Vec::new();
                 let mut i: u32 = 0;
                 while i < size {
-                    let record = Record::new(&data[i as usize ..], i)?;
+                    let record = Record::new(&data[i as usize ..], i).context(
+                        format!("Record at index {}, offset {}", records.len(), i)
+                    )?;
                     if i == 0 {
                         records.reserve_exact(31); // TODO
                         // pub fn try_reserve_exact(
