@@ -1,3 +1,4 @@
+use std::cmp::{min, max};
 use anyhow::{Context, Result};
 
 fn as_u32(data: &[u8]) -> u32 {
@@ -15,8 +16,19 @@ fn as_u32(data: &[u8]) -> u32 {
 //     T::from_be_bytes(buf)
 // }
 
-// fn ascii_or_hex(data: &[u8]) -> String {
-// }
+fn ascii_or_hex(data: &[u8]) -> String {
+    let mut s = String::new();
+    s.reserve_exact(data.len() * 2);
+    for byte in data {
+        if 0x1Fu8 < *byte && *byte < 0x7Fu8 {
+            s.push(' ');
+            s.push(*byte as char);
+        } else {
+            s.push_str(&format!("{:02X}", byte)); // TODO: can this be done more directly?
+        }
+    }
+    s
+}
 
 struct SubRecord {
     start: u32,
@@ -92,9 +104,8 @@ impl File {
             format!("File size ({}) does not fit into a 32 bit unsigned value", size)
         )?;
 
-        // TODO: check that sufficient bytes exist for every slice
-        // TODO: slice at most 4 bytes
-        let records = match &data[0..4] {
+        // TODO: better way to slice at most 4 bytes?
+        let records = match &data[0..min(4,data.len())] {
             b"TES3" => {
                 let mut records = Vec::new();
                 let mut i: u32 = 0;
@@ -115,7 +126,9 @@ impl File {
                 }
                 Ok(records)
             }
-            head => None{}.context(format!("Unexpected initial bytes: {:?}", head)),
+            head => None{}.context(
+                format!("Unexpected initial bytes: {}", ascii_or_hex(head))
+            ),
             // TODO: handle printing non-ascii bytes
         }?;
 
