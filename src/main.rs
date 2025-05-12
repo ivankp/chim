@@ -29,7 +29,9 @@ impl SubRecord {
     fn new(data: &[u8], start: u32) -> Result<Self> {
         let data_len = data.len() as u32; // safe, already checked that file size fits in u32
         if data_len < Self::HEAD_SIZE {
-            return None{}.context("Subrecord data contains less than 8 bytes");
+            return None{}.context(
+                format!("Subrecord data contains less than {} bytes", Self::HEAD_SIZE)
+            );
         }
         let size = as_u32(&data[4..]).saturating_add(Self::HEAD_SIZE);
         Ok(Self {
@@ -51,7 +53,9 @@ impl Record {
     fn new(data: &[u8], start: u32) -> Result<Self> {
         let data_len = data.len() as u32; // safe, already checked that file size fits in u32
         if data_len < Self::HEAD_SIZE {
-            return None{}.context("Record data contains less than 16 bytes");
+            return None{}.context(
+                format!("Record data contains less than {} bytes", Self::HEAD_SIZE)
+            );
         }
         let size = as_u32(&data[4..]).saturating_add(Self::HEAD_SIZE);
         if data_len < size {
@@ -88,6 +92,8 @@ impl File {
             format!("File size ({}) does not fit into a 32 bit unsigned value", size)
         )?;
 
+        // TODO: check that sufficient bytes exist for every slice
+        // TODO: slice at most 4 bytes
         let records = match &data[0..4] {
             b"TES3" => {
                 let mut records = Vec::new();
@@ -97,7 +103,8 @@ impl File {
                         format!("Record at index {}, offset {}", records.len(), i)
                     )?;
                     if i == 0 {
-                        records.reserve_exact(31); // TODO
+                        // TODO: reserve vector of records
+                        records.reserve_exact(31);
                         // pub fn try_reserve_exact(
                         //     &mut self,
                         //     additional: usize,
@@ -108,7 +115,8 @@ impl File {
                 }
                 Ok(records)
             }
-            head => None{}.context(format!("Unexpected initial 4 bytes: {:?}", head)),
+            head => None{}.context(format!("Unexpected initial bytes: {:?}", head)),
+            // TODO: handle printing non-ascii bytes
         }?;
 
         Ok(Self {
