@@ -72,6 +72,12 @@ impl SubRecord {
             size: size,
         })
     }
+
+    fn as_xml(&self, data: &[u8]) -> String {
+        let data = &data[self.start as usize..];
+        let tag = xml_tag(&data[..4]);
+        format!("  <{}></{}>\n", tag, tag) // TODO: is this the best way to concatenate strings?
+    }
 }
 
 struct Record {
@@ -113,7 +119,13 @@ impl Record {
     fn as_xml(&self, data: &[u8]) -> String {
         let data = &data[self.start as usize..];
         let tag = xml_tag(&data[..4]);
-        format!("<{}></{}>\n", tag, tag) // TODO: is this the best way to concatenate strings?
+        let mut xml = String::new();
+        xml += &format!("<{}>\n", tag);
+        for subrecord in &self.subrecords {
+            xml += &subrecord.as_xml(data);
+        }
+        xml += &format!("</{}>\n", tag);
+        xml
     }
 }
 
