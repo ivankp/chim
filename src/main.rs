@@ -31,6 +31,26 @@ fn ascii_or_hex(data: &[u8]) -> String {
     s
 }
 
+fn xml_tag(data: &[u8]) -> String { // TODO: take [u8, 4]
+    let mut tag = String::with_capacity(4);
+    for byte in data {
+        match byte {
+            0x41u8..0x5Bu8 | 0x61u8..0x7Bu8 | 0x30u8..0x3Au8 | 0x5Fu8 | 0x2Du8 | 0x2Eu8 => {
+                tag.push(*byte as char);
+            }
+            _ => {
+                tag.clear();
+                tag.reserve_exact(4);
+                for byte in data {
+                    tag += &format!("{:02X}", byte); // TODO: use simpler method
+                }
+                break;
+            }
+        }
+    }
+    tag
+}
+
 struct SubRecord {
     start: u32,
     size: u32,
@@ -46,7 +66,7 @@ impl SubRecord {
                 format!("Subrecord data contains less than {} bytes", Self::HEAD_SIZE)
             );
         }
-        let size = as_u32(&data[4..]).saturating_add(Self::HEAD_SIZE);
+        let size = as_u32(&data[4..]).saturating_add(Self::HEAD_SIZE); // TODO: overflow
         Ok(Self {
             start: start,
             size: size,
@@ -70,7 +90,7 @@ impl Record {
                 format!("Record data contains less than {} bytes", Self::HEAD_SIZE)
             );
         }
-        let size = as_u32(&data[4..]).saturating_add(Self::HEAD_SIZE);
+        let size = as_u32(&data[4..]).saturating_add(Self::HEAD_SIZE); // TODO: overflow
         if data_len < size {
             return None{}.context(
                 format!("Record size ({}) larger than remaining file size ({})", size, data_len)
@@ -88,6 +108,12 @@ impl Record {
             size: size,
             subrecords: subrecords,
         })
+    }
+
+    fn as_xml(&self, data: &[u8]) -> String {
+        let data = &data[self.start as usize..];
+        let tag = xml_tag(&data[..4]);
+        format!("<{}></{}>\n", tag, tag) // TODO: is this the best way to concatenate strings?
     }
 }
 
@@ -142,6 +168,15 @@ impl File {
             records: records,
         })
     }
+
+    fn as_xml(&self) -> String {
+        let data = &self.data[..];
+        let mut xml = String::new();
+        for record in &self.records {
+            xml += &record.as_xml(data);
+        }
+        xml
+    }
 }
 
 const USAGE: &str = "usage: chim input [output]";
@@ -154,6 +189,8 @@ fn main() -> Result<()> {
 
     let file = File::new(input).context(format!("Input file {}", input_clone))?;
     println!("{:?} {:?}", file.records.len(), file.path);
+
+    println!("{}", file.as_xml());
 
     Ok(())
 }
