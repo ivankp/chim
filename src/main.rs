@@ -1,5 +1,6 @@
 use std::cmp::{min, max};
 use anyhow::{Context, Result};
+use bstr::ByteSlice;
 
 fn as_u32(data: &[u8]) -> u32 {
     let mut x: u32 = 0;
@@ -104,9 +105,8 @@ impl File {
             format!("File size ({}) does not fit into a 32 bit unsigned value", size)
         )?;
 
-        // TODO: better way to slice at most 4 bytes?
-        let records = match &data[0..min(4,data.len())] {
-            b"TES3" => {
+        let records = {
+            if data.starts_with(b"TES3") {
                 let mut records = Vec::new();
                 let mut i: u32 = 0;
                 while i < size {
@@ -125,10 +125,14 @@ impl File {
                     records.push(record); // TODO: can I create the object in-place?
                 }
                 Ok(records)
+            } else {
+                None{}.context(
+                    format!("Unexpected initial bytes: {:?}",
+                        // TODO: better way to slice at most 4 bytes?
+                        &data[..min(4,data.len())].as_bstr()
+                    )
+                )
             }
-            head => None{}.context(
-                format!("Unexpected initial bytes: {}", ascii_or_hex(head))
-            ),
             // TODO: handle printing non-ascii bytes
         }?;
 
