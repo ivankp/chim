@@ -1,4 +1,4 @@
-use std::{ cmp::min };
+use std::{ cmp::min, fmt::Write as _ };
 use anyhow::{ Context, Result, anyhow };
 use bstr::ByteSlice;
 
@@ -88,10 +88,17 @@ impl Subrecord {
         })
     }
 
-    fn as_xml(&self, data: &[u8]) -> String {
+    fn as_xml(&self, xml: &mut String, data: &[u8]) -> Result<()> {
         let data = &data[self.start as usize..];
         let tag = xml_tag(&data[..4]);
-        format!("  <{0}></{0}>\n", tag)
+
+        write!(xml, "  <{} size=\"{}\">\n", tag, self.size - Self::HEAD_SIZE)?;
+
+
+
+        write!(xml, "  </{}>\n", tag)?;
+
+        Ok(())
     }
 }
 
@@ -134,16 +141,21 @@ impl Record {
         })
     }
 
-    fn as_xml(&self, data: &[u8]) -> String {
+    fn as_xml(&self, xml: &mut String, data: &[u8]) -> Result<()> {
         let data = &data[self.start as usize..];
         let tag = xml_tag(&data[..4]);
-        let mut xml = String::new();
-        xml += &format!("<{}>\n", tag);
-        for subrecord in &self.subrecords {
-            xml += &subrecord.as_xml(data);
+
+        write!(xml, "<{} size=\"{}\">\n", tag, self.size - Self::HEAD_SIZE)?;
+
+        for (i, subrecord) in self.subrecords.iter().enumerate() {
+            subrecord.as_xml(xml, data).context(
+                format!("XML formatting subrecord {}", i)
+            )?;
         }
-        xml += &format!("</{}>\n", tag);
-        xml
+
+        write!(xml, "</{}>\n", tag)?;
+
+        Ok(())
     }
 }
 
@@ -154,7 +166,7 @@ struct File {
 }
 
 impl File {
-    fn new(path: &String) -> Result<Self> {
+    fn new(path: &str) -> Result<Self> {
         let data = std::fs::read(path)?;
         let size = data.len();
         let size = u32::try_from(size).context(
@@ -190,19 +202,21 @@ impl File {
         }?;
 
         Ok(Self {
-            path: path.clone(),
+            path: path.to_owned(),
             data: data,
             records: records,
         })
     }
 
-    fn as_xml(&self) -> String {
+    fn as_xml(&self) -> Result<String> {
         let data = &self.data[..];
         let mut xml = String::new();
-        for record in &self.records {
-            xml += &record.as_xml(data);
+        for (i, record) in self.records.iter().enumerate() {
+            record.as_xml(&mut xml, data).context(
+                format!("XML formatting record {}", i)
+            )?;
         }
-        xml
+        Ok(xml)
     }
 }
 
@@ -213,10 +227,14 @@ fn main() -> Result<()> {
 
     let input = args.next().context(format!("Input file not specified.\n{USAGE}"))?;
 
-    let file = File::new(&input).context(format!("Input file {}", input))?;
-    println!("{:?} {:?}", file.records.len(), file.path);
+    || -> Result<()> {
+        let file = File::new(&input)?;
+        println!("{:?} {:?}", file.records.len(), file.path);
 
-    print!("{}", file.as_xml());
+        print!("{}", file.as_xml()?);
+
+        Ok(())
+    }().context(format!("Input file {}", input))?;
 
     Ok(())
 }
