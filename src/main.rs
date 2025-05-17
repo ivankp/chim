@@ -53,20 +53,29 @@ fn append_hex_bytes(s: &mut String, bytes: &[u8]) {
 
 struct AsHex<'a> {
     data: &'a [u8],
-    step: usize,
 }
 
+// https://doc.rust-lang.org/std/fmt/struct.Formatter.html#examples-6
 impl std::fmt::Display for AsHex<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         // TODO: reserve f
+        let precision = f.precision().unwrap_or(0);
+        let width = f.width().unwrap_or(0);
+
         for (i, byte) in self.data.iter().enumerate() {
-            if i % self.step == 0 && i != 0 {
-                write!(f, " ")?;
+            if i > 0 {
+                let w = if width > 0 { i % width } else { i };
+                if w == 0 {
+                    write!(f, "\n")?;
+                } else if precision > 0 && w % precision == 0 {
+                    write!(f, " ")?;
+                }
             }
 
             // write!(f, "{}{}", hex_char(byte >> 4), hex_char(byte & 0x0F))?;
             write!(f, "{:02X}", byte)?;
         }
+
         Ok(())
     }
 }
@@ -176,10 +185,10 @@ impl Record {
         let data = &data[self.start as usize..];
         let tag = xml_tag(&data[..4]);
 
-        write!(xml, "<{} size=\"{}\" flags=\"{}\">\n",
+        write!(xml, "<{} size=\"{}\" flags=\"{:.1}\">\n",
             tag,
             self.size - Self::HEAD_SIZE,
-            AsHex { data: &data[8..16], step: 1 }
+            AsHex { data: &data[8..16] }
         )?;
 
         for (i, subrecord) in self.subrecords.iter().enumerate() {
