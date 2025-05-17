@@ -33,11 +33,42 @@ fn ascii_or_hex(data: &[u8]) -> String {
 }
 */
 
+fn hex_char(half_byte: u8) -> char {
+    (half_byte + (if half_byte < 10 { 0x30 } else { 0x41 })) as char
+}
+
 fn append_hex_byte(s: &mut String, byte: u8) {
-    let a = byte >> 4;
-    s.push((a + (if a < 10 { 0x30 } else { 0x41 })) as char);
-    let a = byte & 0x0F;
-    s.push((a + (if a < 10 { 0x30 } else { 0x41 })) as char);
+    s.push(hex_char(byte >> 4));
+    s.push(hex_char(byte & 0x0F));
+}
+
+/*
+fn append_hex_bytes(s: &mut String, bytes: &[u8]) {
+    s.reserve(bytes.len() * 2);
+    for byte in bytes {
+        append_hex_byte(s, *byte);
+    }
+}
+*/
+
+struct AsHex<'a> {
+    data: &'a [u8],
+    step: usize,
+}
+
+impl std::fmt::Display for AsHex<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        // TODO: reserve f
+        for (i, byte) in self.data.iter().enumerate() {
+            if i % self.step == 0 && i != 0 {
+                write!(f, " ")?;
+            }
+
+            // write!(f, "{}{}", hex_char(byte >> 4), hex_char(byte & 0x0F))?;
+            write!(f, "{:02X}", byte)?;
+        }
+        Ok(())
+    }
 }
 
 fn xml_tag(data: &[u8]) -> String { // TODO: take [u8, 4]
@@ -145,7 +176,11 @@ impl Record {
         let data = &data[self.start as usize..];
         let tag = xml_tag(&data[..4]);
 
-        write!(xml, "<{} size=\"{}\">\n", tag, self.size - Self::HEAD_SIZE)?;
+        write!(xml, "<{} size=\"{}\" flags=\"{}\">\n",
+            tag,
+            self.size - Self::HEAD_SIZE,
+            AsHex { data: &data[8..16], step: 1 }
+        )?;
 
         for (i, subrecord) in self.subrecords.iter().enumerate() {
             subrecord.as_xml(xml, data).context(
@@ -166,8 +201,8 @@ struct File {
 }
 
 impl File {
-    fn new(path: &str) -> Result<Self> {
-        let data = std::fs::read(path)?;
+    fn new(path: String) -> Result<Self> {
+        let data = std::fs::read(&path)?;
         let size = data.len();
         let size = u32::try_from(size).context(
             format!("File size ({}) does not fit into a 32 bit unsigned value", size)
@@ -202,7 +237,7 @@ impl File {
         }?;
 
         Ok(Self {
-            path: path.to_owned(),
+            path: path,
             data: data,
             records: records,
         })
@@ -222,13 +257,15 @@ impl File {
 
 const USAGE: &str = "usage: chim input [output]";
 
+// TODO: read from any buffer
+// TODO: write to any buffer, including a file
+
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-
     let input = args.next().context(format!("Input file not specified.\n{USAGE}"))?;
 
     || -> Result<()> {
-        let file = File::new(&input)?;
+        let file = File::new(input.clone())?;
         println!("{:?} {:?}", file.records.len(), file.path);
 
         print!("{}", file.as_xml()?);
