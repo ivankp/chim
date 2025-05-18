@@ -109,18 +109,18 @@ impl Subrecord {
     const HEAD_SIZE: u32 = 8;
 
     fn new(data: &[u8], start: u32) -> Result<Self> {
-        let data_len = data.len() as u32; // safe, already checked that file size fits in u32
-        if data_len < Self::HEAD_SIZE {
-            return Err(anyhow!("Subrecord contains less than {} bytes", Self::HEAD_SIZE));
-        }
+        // already checked that file size fits in u32
+        let data_len = (data.len() as u32).checked_sub(Self::HEAD_SIZE).context(
+            format!("Subrecord contains less than {} bytes", Self::HEAD_SIZE)
+        )?;
+
         let size = parse_u32(&data[4..]);
-        if data_len - Self::HEAD_SIZE < size {
+        if data_len < size {
             return Err(anyhow!(
                 "Subrecord size ({}) larger than remaining file size ({})",
-                size, data_len - Self::HEAD_SIZE
+                size, data_len
             ));
         }
-        let size = size + Self::HEAD_SIZE;
 
         Ok(Self {
             start: start,
@@ -132,9 +132,10 @@ impl Subrecord {
         let data = &data[self.start as usize..];
         let tag = xml_tag(&data[..4]);
 
-        write!(xml, "  <{} size=\"{}\">\n", tag, self.size - Self::HEAD_SIZE)?;
+        write!(xml, "  <{} size=\"{}\">\n", tag, self.size)?;
 
-
+        let data = &data[Self::HEAD_SIZE as usize..];
+        write!(xml, "    {:64.8}\n", AsHex { data: &data[..self.size as usize] })?;
 
         write!(xml, "  </{}>\n", tag)?;
 
@@ -152,28 +153,30 @@ impl Record {
     const HEAD_SIZE: u32 = 16;
 
     fn new(data: &[u8], start: u32) -> Result<Self> {
-        let data_len = data.len() as u32; // safe, already checked that file size fits in u32
-        if data_len < Self::HEAD_SIZE {
-            return Err(anyhow!("Record contains less than {} bytes", Self::HEAD_SIZE));
-        }
+        // already checked that file size fits in u32
+        let data_len = (data.len() as u32).checked_sub(Self::HEAD_SIZE).context(
+            format!("Record contains less than {} bytes", Self::HEAD_SIZE)
+        )?;
+
         let size = parse_u32(&data[4..]);
-        if data_len - Self::HEAD_SIZE < size {
+        if data_len < size {
             return Err(anyhow!(
                 "Record size ({}) larger than remaining file size ({})",
-                size, data_len - Self::HEAD_SIZE
+                size, data_len
             ));
         }
-        let size = size + Self::HEAD_SIZE;
 
         let mut subrecords = Vec::new();
         let mut i: u32 = Self::HEAD_SIZE;
-        while i < size {
+        let end = size + Self::HEAD_SIZE;
+        while i < end {
             let subrecord = Subrecord::new(&data[i as usize ..], i).context(
                 format!("Subrecord {} at offset {}", subrecords.len(), i)
             )?;
-            i += subrecord.size;
+            i += Subrecord::HEAD_SIZE + subrecord.size;
             subrecords.push(subrecord);
         }
+
         Ok(Self {
             start: start,
             size: size,
@@ -185,9 +188,9 @@ impl Record {
         let data = &data[self.start as usize..];
         let tag = xml_tag(&data[..4]);
 
-        write!(xml, "<{} size=\"{}\" flags=\"{:.1}\">\n",
+        write!(xml, "<{} size=\"{}\" flags=\"{}\">\n",
             tag,
-            self.size - Self::HEAD_SIZE,
+            self.size,
             AsHex { data: &data[8..16] }
         )?;
 
@@ -233,7 +236,7 @@ impl File {
                         //     additional: usize,
                         // ) -> Result<(), TryReserveError>
                     }
-                    i += record.size;
+                    i += Record::HEAD_SIZE + record.size;
                     records.push(record);
                 }
                 Ok(records)
