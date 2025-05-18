@@ -128,16 +128,23 @@ impl Subrecord {
         })
     }
 
+    fn range(&self) -> std::ops::Range<usize> {
+        self.start as usize .. (self.start + Self::HEAD_SIZE + self.size) as usize
+    }
+
     fn as_xml(&self, xml: &mut String, data: &[u8]) -> Result<()> {
-        let data = &data[self.start as usize..];
+        let data = &data[self.range()];
         let tag = xml_tag(&data[..4]);
 
-        write!(xml, "  <{} size=\"{}\">\n", tag, self.size)?;
+        write!(xml, "  <{} size=\"{}\">", tag, self.size)?;
 
-        let data = &data[Self::HEAD_SIZE as usize..];
-        write!(xml, "    {:64.8}\n", AsHex { data: &data[..self.size as usize] })?;
+        let data = &data[Self::HEAD_SIZE as usize ..];
 
-        write!(xml, "  </{}>\n", tag)?;
+        if data.len() > 32 { write!(xml, "\n")?; }
+        write!(xml, "{:64.8}", AsHex { data: data })?;
+        if data.len() > 32 { write!(xml, "\n  ")?; }
+
+        write!(xml, "</{}>\n", tag)?;
 
         Ok(())
     }
@@ -184,15 +191,22 @@ impl Record {
         })
     }
 
+    fn range(&self) -> std::ops::Range<usize> {
+        self.start as usize .. (self.start + Self::HEAD_SIZE + self.size) as usize
+    }
+
     fn as_xml(&self, xml: &mut String, data: &[u8]) -> Result<()> {
-        let data = &data[self.start as usize..];
+        let data = &data[self.range()];
         let tag = xml_tag(&data[..4]);
 
-        write!(xml, "<{} size=\"{}\" flags=\"{}\">\n",
-            tag,
-            self.size,
-            AsHex { data: &data[8..16] }
-        )?;
+        write!(xml, "<{} size=\"{}\"", tag, self.size)?;
+
+        let flags = &data[8..16];
+        if flags.iter().any(|&x| x != 0) {
+            write!(xml, " flags=\"{}\"", AsHex { data: flags })?;
+        }
+
+        write!(xml, ">\n")?;
 
         for (i, subrecord) in self.subrecords.iter().enumerate() {
             subrecord.as_xml(xml, data).context(
