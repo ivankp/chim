@@ -1,4 +1,4 @@
-use std::{ cmp::min, fmt::Write as _ };
+use std::{ cmp::min, fmt::Write as _, path::Path };
 use anyhow::{ Context, Result, anyhow };
 use bstr::ByteSlice;
 
@@ -115,7 +115,7 @@ impl Subrecord {
         )?;
 
         let size = parse_u32(&data[4..]);
-        if data_len < size {
+        if size > data_len {
             return Err(anyhow!(
                 "Subrecord size ({}) larger than remaining file size ({})",
                 size, data_len
@@ -166,7 +166,7 @@ impl Record {
         )?;
 
         let size = parse_u32(&data[4..]);
-        if data_len < size {
+        if size > data_len {
             return Err(anyhow!(
                 "Record size ({}) larger than remaining file size ({})",
                 size, data_len
@@ -228,45 +228,57 @@ struct File {
 
 impl File {
     fn new(path: String) -> Result<Self> {
-        let data = std::fs::read(&path)?;
-        let size = data.len();
-        let size = u32::try_from(size).context(
-            format!("File size ({}) does not fit into a 32 bit unsigned value", size)
-        )?;
+        let ext = Path::new(&path).extension().context("File name has no extension")?;
+        if ext == "esm" || ext == "esp" || ext == "ess" {
+            let data = std::fs::read(&path)?;
+            let size = data.len();
+            let size = u32::try_from(size).context(
+                format!("File size ({}) does not fit into a 32 bit unsigned value", size)
+            )?;
 
-        let records = {
-            if data.starts_with(b"TES3") {
-                let mut records = Vec::new();
-                let mut i: u32 = 0;
-                while i < size {
-                    let record = Record::new(&data[i as usize ..], i).context(
-                        format!("Record {} at offset {}", records.len(), i)
-                    )?;
-                    if i == 0 {
-                        // TODO: reserve vector of records
-                        records.reserve_exact(31);
-                        // pub fn try_reserve_exact(
-                        //     &mut self,
-                        //     additional: usize,
-                        // ) -> Result<(), TryReserveError>
+            let records = {
+                if data.starts_with(b"TES3") {
+                    let mut records = Vec::new();
+                    let mut i: u32 = 0;
+                    while i < size {
+                        let record = Record::new(&data[i as usize ..], i).context(
+                            format!("Record {} at offset {}", records.len(), i)
+                        )?;
+                        if i == 0 {
+                            // TODO: reserve vector of records
+                            records.reserve_exact(31);
+                            // pub fn try_reserve_exact(
+                            //     &mut self,
+                            //     additional: usize,
+                            // ) -> Result<(), TryReserveError>
+                        }
+                        i += Record::HEAD_SIZE + record.size;
+                        records.push(record);
                     }
-                    i += Record::HEAD_SIZE + record.size;
-                    records.push(record);
+                    Ok(records)
+                } else {
+                    Err(anyhow!(
+                        "Unexpected initial bytes: {:?}",
+                        &data[..min(4,data.len())].as_bstr()
+                    ))
                 }
-                Ok(records)
-            } else {
-                Err(anyhow!(
-                    "Unexpected initial bytes: {:?}",
-                    &data[..min(4,data.len())].as_bstr()
-                ))
-            }
-        }?;
+            }?;
 
-        Ok(Self {
-            path: path,
-            data: data,
-            records: records,
-        })
+            Ok(Self {
+                path: path,
+                data: data,
+                records: records,
+            })
+        } else if ext == "xml" {
+            let data = std::fs::read_to_string(&path)?;
+            let doc = roxmltree::Document::parse(&data)?;
+            let root = doc.root_element();
+            println!("TEST: {:?}", root.tag_name());
+
+            Err(anyhow!("Not finished"))
+        } else {
+            Err(anyhow!("Unexpected file extension: {:?}", ext))
+        }
     }
 
     fn as_xml(&self) -> Result<String> {
