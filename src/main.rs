@@ -1,4 +1,4 @@
-use std::{ cmp::min, fmt::Write as _, path::Path };
+use std::{ io::Read as _, fmt::Write as _, cmp::min };
 use anyhow::{ Context, Result, anyhow };
 use bstr::ByteSlice;
 
@@ -227,58 +227,55 @@ struct File {
 }
 
 impl File {
-    fn new(path: String) -> Result<Self> {
-        let ext = Path::new(&path).extension().context("File name has no extension")?;
-        if ext == "esm" || ext == "esp" || ext == "ess" {
-            let data = std::fs::read(&path)?;
-            let size = data.len();
-            let size = u32::try_from(size).context(
-                format!("File size ({}) does not fit into a 32 bit unsigned value", size)
-            )?;
+    fn new(path: &str) -> Result<Self> {
+        let mut file = std::fs::File::open(path)?;
+        let mut data = Vec::new();
+        let size = || -> Result<u32> {
+            let size = u32::try_from(file.metadata()?.len())?;
+            let read = u32::try_from(file.read_to_end(&mut data)?)?;
+            if read == size || size == 0 {
+                Ok(read)
+            } else {
+                Err(anyhow!("Expected {} bytes, read {} bytes", size, read))
+            }
+        }().context("File size")?; // TODO: do I need a closure to attach context to a block?
 
-            let records = {
-                if data.starts_with(b"TES3") {
-                    let mut records = Vec::new();
-                    let mut i: u32 = 0;
-                    while i < size {
-                        let record = Record::new(&data[i as usize ..], i).context(
-                            format!("Record {} at offset {}", records.len(), i)
-                        )?;
-                        if i == 0 {
-                            // TODO: reserve vector of records
-                            records.reserve_exact(31);
-                            // pub fn try_reserve_exact(
-                            //     &mut self,
-                            //     additional: usize,
-                            // ) -> Result<(), TryReserveError>
-                        }
-                        i += Record::HEAD_SIZE + record.size;
-                        records.push(record);
-                    }
-                    Ok(records)
-                } else {
-                    Err(anyhow!(
-                        "Unexpected initial bytes: {:?}",
-                        &data[..min(4,data.len())].as_bstr()
-                    ))
+        let mut records = Vec::new();
+        if data.starts_with(b"TES3") {
+            let mut i: u32 = 0;
+            while i < size {
+                let record = Record::new(&data[i as usize ..], i).context(
+                    format!("Record {} at offset {}", records.len(), i)
+                )?;
+                if i == 0 {
+                    // TODO: reserve vector of records
+                    records.reserve_exact(31);
+                    // pub fn try_reserve_exact(
+                    //     &mut self,
+                    //     additional: usize,
+                    // ) -> Result<(), TryReserveError>
                 }
-            }?;
-
-            Ok(Self {
-                path: path,
-                data: data,
-                records: records,
-            })
-        } else if ext == "xml" {
-            let data = std::fs::read_to_string(&path)?;
-            let doc = roxmltree::Document::parse(&data)?;
+                i += Record::HEAD_SIZE + record.size;
+                records.push(record);
+            }
+        } else if data.starts_with(b"<") { // TODO: allow blanks before <
+            let doc = roxmltree::Document::parse(str::from_utf8(&data)?)?;
             let root = doc.root_element();
             println!("TEST: {:?}", root.tag_name());
 
-            Err(anyhow!("Not finished"))
+            return Err(anyhow!("Not finished"));
         } else {
-            Err(anyhow!("Unexpected file extension: {:?}", ext))
+            return Err(anyhow!(
+                "Unexpected initial bytes: {:?}",
+                &data[..min(4,data.len())].as_bstr()
+            ));
         }
+
+        Ok(Self {
+            path: path.to_owned(),
+            data: data,
+            records: records,
+        })
     }
 
     fn as_xml(&self) -> Result<String> {
@@ -303,7 +300,7 @@ fn main() -> Result<()> {
     let input = args.next().context(format!("Input file not specified.\n{USAGE}"))?;
 
     || -> Result<()> {
-        let file = File::new(input.clone())?;
+        let file = File::new(&input)?;
         println!("{:?} {:?}", file.records.len(), file.path);
 
         print!("{}", file.as_xml()?);
