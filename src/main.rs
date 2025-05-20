@@ -150,7 +150,7 @@ impl Subrecord {
         let data = &data[Self::HEAD_SIZE as usize ..];
 
         if data.len() > 32 { write!(xml, "\n")?; }
-        write!(xml, "{:64.8}", AsHex { data: data })?;
+        write!(xml, "{:32.4}", AsHex { data: data })?;
         if data.len() > 32 { write!(xml, "\n  ")?; }
 
         write!(xml, "</{}>\n", tag)?;
