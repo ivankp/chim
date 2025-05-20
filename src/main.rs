@@ -80,6 +80,15 @@ impl std::fmt::Display for AsHex<'_> {
     }
 }
 
+fn is_xml_initial_bytes(data: &[u8]) -> bool {
+    for byte in data {
+        if !b" \t\r\n".contains(byte) {
+            return *byte == '<' as u8;
+        }
+    }
+    false
+}
+
 fn xml_tag(data: &[u8]) -> String { // TODO: take [u8, 4]
     let mut tag = String::with_capacity(data.len());
     for byte in data {
@@ -258,7 +267,7 @@ impl File {
                 i += Record::HEAD_SIZE + record.size;
                 records.push(record);
             }
-        } else if data.starts_with(b"<") { // TODO: allow blanks before <
+        } else if is_xml_initial_bytes(&data[..]) {
             let doc = roxmltree::Document::parse(str::from_utf8(&data)?)?;
             let root = doc.root_element();
             println!("root element: {:?}", root.tag_name());
