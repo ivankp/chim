@@ -261,7 +261,17 @@ impl File {
         } else if data.starts_with(b"<") { // TODO: allow blanks before <
             let doc = roxmltree::Document::parse(str::from_utf8(&data)?)?;
             let root = doc.root_element();
-            println!("TEST: {:?}", root.tag_name());
+            println!("root element: {:?}", root.tag_name());
+
+            for node in root.children() {
+                if node.is_element() {
+                    println!(
+                        "{:?} at {}",
+                        node.tag_name(),
+                        doc.text_pos_at(node.range().start)
+                    );
+                }
+            }
 
             return Err(anyhow!("Not finished"));
         } else {
@@ -306,7 +316,7 @@ fn main() -> Result<()> {
         print!("{}", file.as_xml()?);
 
         Ok(())
-    }().context(format!("Input file {}", input))?;
+    }().context(format!("Input file {}", input))?; // TODO: do I need a closure to attach context to a block?
 
     Ok(())
 }
