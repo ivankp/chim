@@ -139,7 +139,7 @@ impl Subrecord {
         self.start as usize .. (self.start + Self::HEAD_SIZE + self.size) as usize
     }
 
-    fn as_xml(&self, xml: &mut String, data: &[u8]) -> Result<()> {
+    fn to_xml(&self, xml: &mut String, data: &[u8]) -> Result<()> {
         let data = &data[self.range()];
         let tag = xml_tag(&data[..4]);
 
@@ -202,7 +202,7 @@ impl Record {
         self.start as usize .. (self.start + Self::HEAD_SIZE + self.size) as usize
     }
 
-    fn as_xml(&self, xml: &mut String, data: &[u8]) -> Result<()> {
+    fn to_xml(&self, xml: &mut String, data: &[u8]) -> Result<()> {
         let data = &data[self.range()];
         let tag = xml_tag(&data[..4]);
 
@@ -216,13 +216,23 @@ impl Record {
         write!(xml, ">\n")?;
 
         for (i, subrecord) in self.subrecords.iter().enumerate() {
-            subrecord.as_xml(xml, data).context(
+            subrecord.to_xml(xml, data).context(
                 format!("XML formatting subrecord {}", i)
             )?;
         }
 
         write!(xml, "</{}>\n", tag)?;
 
+        Ok(())
+    }
+
+    fn from_xml(file: &mut File, node: &roxmltree::Node) -> Result<()> {
+        let tag = node.tag_name();
+        let size: u32 = node
+            .attribute("size").context("Record missing size attribute")?
+            .parse().context("Failed to parse record size as u32")?;
+
+        print!("{:?} {:?}\n", tag, size);
         Ok(())
     }
 }
@@ -247,8 +257,9 @@ impl File {
             }
         }.context("File size")?;
 
-        let mut records = Vec::new();
-        if data.starts_with(b"TES3") {
+        if data.starts_with(b"TES3") { // TES3 -----------------------------------------------------
+            let mut records = Vec::new();
+
             let mut offset: u32 = 0;
             while offset < size {
                 let record = Record::new(&data[offset as usize ..], offset).context(
@@ -265,47 +276,43 @@ impl File {
                 offset += Record::HEAD_SIZE + record.size;
                 records.push(record);
             }
-        } else if is_xml_initial_bytes(&data[..]) {
+
+            Ok(Self { data, records /*, path: path.to_owned() */ })
+        } else if is_xml_initial_bytes(&data[..]) { // XML -----------------------------------------
             let doc = roxmltree::Document::parse(str::from_utf8(&data)?)?;
             let root = doc.root_element();
             println!("root element: {:?}", root.tag_name());
 
-            for node in root.children() {
-                if node.is_element() {
-                    println!(
-                        "{:?} at {}",
-                        node.tag_name(),
-                        doc.text_pos_at(node.range().start)
-                    );
-                }
-            }
-
-            return Err(anyhow!("Not finished"));
-        } else {
-            return Err(anyhow!(
+            Self::from_xml(&root)
+        } else { // --------------------------------------------------------------------------------
+            Err(anyhow!(
                 "Unexpected initial bytes: {:?}",
                 &data[..min(4,data.len())].as_bstr()
-            ));
+            ))
         }
-
-        Ok(Self {
-            data: data,
-            records: records,
-            // path: path.to_owned(),
-        })
     }
 
-    fn as_xml(&self) -> Result<String> {
+    fn to_xml(&self) -> Result<String> {
         let data = &self.data[..];
         let mut xml = String::new();
         write!(&mut xml, "<CHIM>\n")?;
         for (i, record) in self.records.iter().enumerate() {
-            record.as_xml(&mut xml, data).context(
+            record.to_xml(&mut xml, data).context(
                 format!("XML formatting record {}", i)
             )?;
         }
         write!(&mut xml, "</CHIM>\n")?;
         Ok(xml)
+    }
+
+    fn from_xml(root: &roxmltree::Node) -> Result<Self> {
+        let mut file = Self { data: Vec::new(), records: Vec::new() };
+        for node in root.children() {
+            if node.is_element() {
+                Record::from_xml(&mut file, &node)?;
+            }
+        }
+        Ok(file)
     }
 }
 
@@ -322,7 +329,7 @@ fn main() -> Result<()> {
         let file = File::new(&input)?;
         // println!("{:?} {:?}", file.records.len(), file.path);
 
-        print!("{}", file.as_xml()?);
+        print!("{}", file.to_xml()?);
 
         anyhow::Ok(())
     }.context(format!("Input file {}", input))?;
