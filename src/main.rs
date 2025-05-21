@@ -181,13 +181,13 @@ impl Record {
         }
 
         let mut subrecords = Vec::new();
-        let mut i: u32 = Self::HEAD_SIZE;
+        let mut offset: u32 = Self::HEAD_SIZE;
         let end = size + Self::HEAD_SIZE;
-        while i < end {
-            let subrecord = Subrecord::new(&data[i as usize ..], i).context(
-                format!("Subrecord {} at offset {}", subrecords.len(), i)
+        while offset < end {
+            let subrecord = Subrecord::new(&data[offset as usize ..], offset).context(
+                format!("Subrecord {} at offset {}", subrecords.len(), offset)
             )?;
-            i += Subrecord::HEAD_SIZE + subrecord.size;
+            offset += Subrecord::HEAD_SIZE + subrecord.size;
             subrecords.push(subrecord);
         }
 
@@ -249,12 +249,12 @@ impl File {
 
         let mut records = Vec::new();
         if data.starts_with(b"TES3") {
-            let mut i: u32 = 0;
-            while i < size {
-                let record = Record::new(&data[i as usize ..], i).context(
-                    format!("Record {} at offset {}", records.len(), i)
+            let mut offset: u32 = 0;
+            while offset < size {
+                let record = Record::new(&data[offset as usize ..], offset).context(
+                    format!("Record {} at offset {}", records.len(), offset)
                 )?;
-                if i == 0 {
+                if offset == 0 {
                     // TODO: reserve vector of records
                     records.reserve_exact(31);
                     // pub fn try_reserve_exact(
@@ -262,7 +262,7 @@ impl File {
                     //     additional: usize,
                     // ) -> Result<(), TryReserveError>
                 }
-                i += Record::HEAD_SIZE + record.size;
+                offset += Record::HEAD_SIZE + record.size;
                 records.push(record);
             }
         } else if is_xml_initial_bytes(&data[..]) {
