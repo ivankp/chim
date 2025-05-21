@@ -1,5 +1,5 @@
 use std::{ io::Read as _, fmt::Write as _, cmp::min };
-use anyhow::{ Context, Result, anyhow };
+use anyhow::{ Result, Context, anyhow };
 use bstr::ByteSlice;
 
 fn parse_u32(data: &[u8]) -> u32 {
@@ -239,7 +239,7 @@ impl File {
     fn new(path: &str) -> Result<Self> {
         let mut file = std::fs::File::open(path)?;
         let mut data = Vec::new();
-        let size = || -> Result<u32> {
+        let size = {
             let size = u32::try_from(file.metadata()?.len())?;
             let read = u32::try_from(file.read_to_end(&mut data)?)?;
             if read == size || size == 0 {
@@ -247,7 +247,7 @@ impl File {
             } else {
                 Err(anyhow!("Expected {} bytes, read {} bytes", size, read))
             }
-        }().context("File size")?; // TODO: do I need a closure to attach context to a block?
+        }.context("File size")?;
 
         let mut records = Vec::new();
         if data.starts_with(b"TES3") {
@@ -318,14 +318,14 @@ fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let input = args.next().context(format!("Input file not specified.\n{USAGE}"))?;
 
-    || -> Result<()> {
+    {
         let file = File::new(&input)?;
         println!("{:?} {:?}", file.records.len(), file.path);
 
         print!("{}", file.as_xml()?);
 
-        Ok(())
-    }().context(format!("Input file {}", input))?; // TODO: do I need a closure to attach context to a block?
+        anyhow::Ok(())
+    }.context(format!("Input file {}", input))?;
 
     Ok(())
 }
