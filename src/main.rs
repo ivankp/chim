@@ -228,9 +228,9 @@ impl Record {
 }
 
 struct File {
-    path: String,
     data: Vec<u8>,
     records: Vec<Record>,
+    // path: String,
 }
 
 impl File {
@@ -289,20 +289,22 @@ impl File {
         }
 
         Ok(Self {
-            path: path.to_owned(),
             data: data,
             records: records,
+            // path: path.to_owned(),
         })
     }
 
     fn as_xml(&self) -> Result<String> {
         let data = &self.data[..];
         let mut xml = String::new();
+        write!(&mut xml, "<CHIM>\n")?;
         for (i, record) in self.records.iter().enumerate() {
             record.as_xml(&mut xml, data).context(
                 format!("XML formatting record {}", i)
             )?;
         }
+        write!(&mut xml, "</CHIM>\n")?;
         Ok(xml)
     }
 }
@@ -318,7 +320,7 @@ fn main() -> Result<()> {
 
     {
         let file = File::new(&input)?;
-        println!("{:?} {:?}", file.records.len(), file.path);
+        // println!("{:?} {:?}", file.records.len(), file.path);
 
         print!("{}", file.as_xml()?);
 
