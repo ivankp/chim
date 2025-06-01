@@ -42,15 +42,6 @@ fn append_hex_byte(s: &mut String, byte: u8) {
     s.push(hex_char(byte & 0x0F));
 }
 
-/*
-fn append_hex_bytes(s: &mut String, bytes: &[u8]) {
-    s.reserve(bytes.len() * 2);
-    for byte in bytes {
-        append_hex_byte(s, *byte);
-    }
-}
-*/
-
 struct Bytes<'a>(&'a [u8]);
 
 // https://doc.rust-lang.org/std/fmt/struct.Formatter.html#examples-6
@@ -106,6 +97,37 @@ fn xml_tag(data: &[u8]) -> String { // TODO: take [u8, 4]
     }
     tag
 }
+
+fn xml_tag_to_bytes(tag: &str) -> Result<[u8; 4]> {
+    let tag_bytes = tag.as_bytes();
+    match tag_bytes.len() {
+       4 => {
+           Ok(tag_bytes.into())
+       }
+       8 => {
+           let mut bytes = [0u8; 4];
+           for (i, c) in tag_bytes.iter().enumerate() {
+               let mut byte: u8 = c - match c {
+                   b'0'..b'9' => b'0',
+                   b'A'..b'F' => b'A' - 10u8,
+                   b'a'..b'f' => b'a' - 10u8,
+                   _ => {
+                       return Err(anyhow!("Unexpected tag name {}", tag));
+                   }
+               };
+               if i%2 != 0 {
+                   byte <<= 4;
+               }
+               bytes[i/2] += byte;
+           }
+           Ok(bytes)
+       }
+       _ => {
+           Err(anyhow!("Unexpected tag name {}", tag))
+       }
+    }
+}
+
 
 struct Subrecord {
     start: u32,
@@ -227,12 +249,16 @@ impl Record {
     }
 
     fn from_xml(file: &mut File, node: &roxmltree::Node) -> Result<()> {
-        let tag = node.tag_name();
+        let tag = node.tag_name().name();
         let size: u32 = node
+            // TODO: put this in a generic function
             .attribute("size").context("Record missing size attribute")?
             .parse().context("Failed to parse record size as u32")?;
 
-        print!("{:?} {:?}\n", tag, size);
+        print!("{} {}\n", tag, size);
+
+        file.data.extend_from_slice(xml_tag_to_bytes(tag)?);
+
         Ok(())
     }
 }
