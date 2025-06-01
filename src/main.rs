@@ -3,12 +3,15 @@ use anyhow::{ Result, Context, anyhow };
 use bstr::ByteSlice;
 
 fn parse_u32(data: &[u8]) -> u32 {
+    /*
     let mut x: u32 = 0;
     x += data[3] as u32; x <<= 8;
     x += data[2] as u32; x <<= 8;
     x += data[1] as u32; x <<= 8;
     x += data[0] as u32;
     x
+    */
+    u32::from_be_bytes(data.try_into().unwrap())
 }
 
 // fn convert<T>(data: &[u8]) -> T {
@@ -82,7 +85,7 @@ fn xml_tag(data: &[u8]) -> String { // TODO: take [u8, 4]
     let mut tag = String::with_capacity(data.len());
     for byte in data {
         match byte {
-            0x41u8..0x5Bu8 | 0x61u8..0x7Bu8 | 0x30u8..0x3Au8 | 0x5Fu8 | 0x2Du8 | 0x2Eu8 => {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b'.' => {
                 tag.push(*byte as char);
             }
             _ => {
@@ -98,33 +101,27 @@ fn xml_tag(data: &[u8]) -> String { // TODO: take [u8, 4]
     tag
 }
 
-fn xml_tag_to_bytes(tag: &str) -> Result<[u8; 4]> {
+fn xml_tag_to_bytes(tag: &str) -> Option<[u8; 4]> {
     let tag_bytes = tag.as_bytes();
     match tag_bytes.len() {
        4 => {
-           Ok(tag_bytes.into())
+           // Some(<[u8; 4]>::try_from(tag_bytes).unwrap())
+           Some(tag_bytes.try_into().unwrap())
        }
        8 => {
            let mut bytes = [0u8; 4];
            for (i, c) in tag_bytes.iter().enumerate() {
-               let mut byte: u8 = c - match c {
+               let byte: u8 = c - match c {
                    b'0'..b'9' => b'0',
                    b'A'..b'F' => b'A' - 10u8,
                    b'a'..b'f' => b'a' - 10u8,
-                   _ => {
-                       return Err(anyhow!("Unexpected tag name {}", tag));
-                   }
+                   _ => { return None; }
                };
-               if i%2 != 0 {
-                   byte <<= 4;
-               }
-               bytes[i/2] += byte;
+               bytes[i/2] += byte << ((!(i % 2)) << 2);
            }
-           Ok(bytes)
+           Some(bytes)
        }
-       _ => {
-           Err(anyhow!("Unexpected tag name {}", tag))
-       }
+       _ => None
     }
 }
 
@@ -257,7 +254,9 @@ impl Record {
 
         print!("{} {}\n", tag, size);
 
-        file.data.extend_from_slice(xml_tag_to_bytes(tag)?);
+        file.data.extend(
+            xml_tag_to_bytes(tag).context(format!("Unexpected record tag name {}", tag))?
+        );
 
         Ok(())
     }
