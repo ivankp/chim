@@ -2,6 +2,8 @@ use std::{ io::Read as _, fmt::Write as _, cmp::min };
 use anyhow::{ Result, Context, anyhow };
 use bstr::ByteSlice;
 
+// TODO: efficient [u8] -> [u8; 4] without checks
+
 fn parse_u32(data: &[u8]) -> u32 {
     /*
     let mut x: u32 = 0;
@@ -11,7 +13,7 @@ fn parse_u32(data: &[u8]) -> u32 {
     x += data[0] as u32;
     x
     */
-    u32::from_be_bytes(data.try_into().unwrap())
+    u32::from_le_bytes(data[..4].try_into().unwrap())
 }
 
 // fn convert<T>(data: &[u8]) -> T {
@@ -75,7 +77,7 @@ impl std::fmt::Display for Bytes<'_> {
 fn is_xml_initial_bytes(data: &[u8]) -> bool {
     for byte in data {
         if !b" \t\r\n".contains(byte) {
-            return *byte == '<' as u8;
+            return *byte == b'<';
         }
     }
     false
@@ -154,6 +156,34 @@ impl Subrecord {
         })
     }
 
+    fn from_xml(node: &roxmltree::Node, data: &mut Vec<u8>) -> Result<Self> {
+        let tag = node.tag_name().name();
+        let size: u32 = node
+            // TODO: put this in a generic function
+            .attribute("size").context("Record missing size attribute")?
+            .parse().context("Failed to parse record size as u32")?;
+        // TODO: validate size
+
+        print!("  {} {}\n", tag, size);
+
+        // TODO: needs to be with respect to the start of the Record
+        // Or change was is done for binary parsing
+        let start = data.len() as u32; // TODO: validate data length
+
+        data.extend(
+            xml_tag_to_bytes(tag).context(format!("Unexpected subrecord tag name {}", tag))?
+        );
+        data.extend(size.to_ne_bytes());
+
+        // TODO: Parse hex data
+        data.resize(data.len() + size as usize, 0u8);
+
+        Ok(Self {
+            start: start,
+            size: size,
+        })
+    }
+
     fn range(&self) -> std::ops::Range<usize> {
         self.start as usize .. (self.start + Self::HEAD_SIZE + self.size) as usize
     }
@@ -217,6 +247,39 @@ impl Record {
         })
     }
 
+    fn from_xml(node: &roxmltree::Node, data: &mut Vec<u8>) -> Result<Self> {
+        let tag = node.tag_name().name();
+        let size: u32 = node
+            // TODO: put this in a generic function
+            .attribute("size").context("Record missing size attribute")?
+            .parse().context("Failed to parse record size as u32")?;
+        // TODO: validate size
+
+        print!("{} {}\n", tag, size);
+
+        let start = data.len() as u32; // TODO: validate data length
+
+        data.extend(
+            xml_tag_to_bytes(tag).context(format!("Unexpected record tag name {}", tag))?
+        );
+        data.extend(size.to_ne_bytes());
+        data.extend([0u8; 8]); // TODO: record flags
+
+        let mut subrecords = Vec::new();
+        // TODO: reserve
+        for child in node.children() {
+            if child.is_element() {
+                subrecords.push(Subrecord::from_xml(&child, data)?);
+            }
+        }
+
+        Ok(Self {
+            start: start,
+            size: size,
+            subrecords: subrecords,
+        })
+    }
+
     fn range(&self) -> std::ops::Range<usize> {
         self.start as usize .. (self.start + Self::HEAD_SIZE + self.size) as usize
     }
@@ -241,22 +304,6 @@ impl Record {
         }
 
         write!(xml, "</{}>\n", tag)?;
-
-        Ok(())
-    }
-
-    fn from_xml(file: &mut File, node: &roxmltree::Node) -> Result<()> {
-        let tag = node.tag_name().name();
-        let size: u32 = node
-            // TODO: put this in a generic function
-            .attribute("size").context("Record missing size attribute")?
-            .parse().context("Failed to parse record size as u32")?;
-
-        print!("{} {}\n", tag, size);
-
-        file.data.extend(
-            xml_tag_to_bytes(tag).context(format!("Unexpected record tag name {}", tag))?
-        );
 
         Ok(())
     }
@@ -303,12 +350,22 @@ impl File {
             }
 
             Ok(Self { data, records /*, path: path.to_owned() */ })
+
         } else if is_xml_initial_bytes(&data[..]) { // XML -----------------------------------------
             let doc = roxmltree::Document::parse(str::from_utf8(&data)?)?;
             let root = doc.root_element();
             println!("root element: {:?}", root.tag_name());
 
-            Self::from_xml(&root)
+            // Self::from_xml(&root)
+            let mut file = Self { data: Vec::new(), records: Vec::new() };
+            // TODO: reserve
+            for child in root.children() {
+                if child.is_element() {
+                    file.records.push(Record::from_xml(&child, &mut file.data)?);
+                }
+            }
+            Ok(file)
+
         } else { // --------------------------------------------------------------------------------
             Err(anyhow!(
                 "Unexpected initial bytes: {:?}",
@@ -330,15 +387,15 @@ impl File {
         Ok(xml)
     }
 
-    fn from_xml(root: &roxmltree::Node) -> Result<Self> {
-        let mut file = Self { data: Vec::new(), records: Vec::new() };
-        for node in root.children() {
-            if node.is_element() {
-                Record::from_xml(&mut file, &node)?;
-            }
-        }
-        Ok(file)
-    }
+    // fn from_xml(node: &roxmltree::Node) -> Result<Self> {
+    //     let mut file = Self { data: Vec::new(), records: Vec::new() };
+    //     for child in node.children() {
+    //         if child.is_element() {
+    //             Record::from_xml(&mut file, &child)?;
+    //         }
+    //     }
+    //     Ok(file)
+    // }
 }
 
 const USAGE: &str = "usage: chim input [output]";
